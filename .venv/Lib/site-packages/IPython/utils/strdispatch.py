@@ -6,9 +6,10 @@ import re
 
 # Our own modules
 from IPython.core.hooks import CommandChainDispatcher
+from collections.abc import Callable
 
 # Code begins
-class StrDispatch(object):
+class StrDispatch:
     """Dispatch (lookup) a set of strings / regexps for match.
 
     Example:
@@ -25,7 +26,7 @@ class StrDispatch(object):
         self.strs = {}
         self.regexs = {}
 
-    def add_s(self, s, obj, priority= 0 ):
+    def add_s(self, s: str, obj: Callable, priority: int= 0 ):
         """ Adds a target 'string' for dispatching """
 
         chain = self.strs.get(s, CommandChainDispatcher())
@@ -48,11 +49,11 @@ class StrDispatch(object):
             if re.match(r, key):
                 yield obj
             else:
-                #print "nomatch",key  # dbg
+                # print("nomatch",key)  # dbg
                 pass
 
     def __repr__(self):
-        return "<Strdispatch %s, %s>" % (self.strs, self.regexs)
+        return "<Strdispatch {}, {}>".format(self.strs, self.regexs)
 
     def s_matches(self, key):
         if key not in self.strs:
