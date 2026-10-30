@@ -2,7 +2,8 @@
    DataRetail 360 · EP3 IDY1102
    02 · Consultas de evidencia para las capturas del informe (SSMS)
    Ejecutar DESPUÉS del notebook 02. Cada bloque indica su captura.
-   ===================================================================== */
+   ===================================================================== 
+   tratando de conectar al sql server*/
 USE DataRetail360;
 GO
 
@@ -141,3 +142,49 @@ SELECT fk.name AS foreign_key, OBJECT_NAME(fk.parent_object_id) AS tabla,
        OBJECT_NAME(fk.referenced_object_id) AS referencia
 FROM sys.foreign_keys fk
 ORDER BY tabla;
+
+/* =====================================================================
+   INVENTARIO DIARIO (FACT_INVENTARIO_DIARIO)
+   ===================================================================== */
+
+/* ---- Captura 37 · Inventario por capa y cuarentena ----------------- */
+SELECT 'bronze.inventario_raw'        AS tabla, COUNT(*) AS filas FROM bronze.inventario_raw
+UNION ALL SELECT 'silver.inventario',            COUNT(*) FROM silver.inventario
+UNION ALL SELECT 'silver.cuarentena_inventario', COUNT(*) FROM silver.cuarentena_inventario
+UNION ALL SELECT 'gold.fact_inventario_diario',  COUNT(*) FROM gold.fact_inventario_diario;
+
+SELECT motivo, COUNT(*) AS filas FROM silver.cuarentena_inventario GROUP BY motivo;
+
+SELECT regla, dimension_dama, filas, accion
+FROM silver.reglas_calidad
+WHERE tabla = 'inventario' AND filas > 0;
+
+/* ---- Captura 38 · Medida semi-aditiva: stock promedio por mes ------ */
+-- El stock NO se suma entre días: se promedia (o se toma el último día del mes).
+SELECT f.nombre_mes, t.categoria,
+       AVG(CAST(t.stock_dia AS DECIMAL(18,2)))  AS stock_promedio_diario,
+       AVG(t.valor_dia)                         AS valor_inventario_promedio
+FROM (SELECT i.fecha_key, p.categoria,
+             SUM(i.cantidad_stock)   AS stock_dia,      -- se suma entre sucursales y productos del mismo día
+             SUM(i.valor_inventario) AS valor_dia
+      FROM gold.fact_inventario_diario i
+      JOIN gold.dim_producto p ON i.producto_key = p.producto_key
+      GROUP BY i.fecha_key, p.categoria) t
+JOIN gold.dim_fecha f ON t.fecha_key = f.fecha_key
+GROUP BY f.mes, f.nombre_mes, t.categoria
+ORDER BY f.mes, t.categoria;
+
+/* ---- Captura 39 · Productos bajo stock mínimo y cruce con ventas --- */
+SELECT TOP 15 f.fecha, s.sucursal, p.sku, p.producto,
+       i.cantidad_stock, i.stock_minimo,
+       ISNULL(v.unidades_vendidas, 0) AS unidades_vendidas_ese_dia
+FROM gold.fact_inventario_diario i
+JOIN gold.dim_fecha f    ON i.fecha_key = f.fecha_key
+JOIN gold.dim_sucursal s ON i.sucursal_key = s.sucursal_key
+JOIN gold.dim_producto p ON i.producto_key = p.producto_key
+LEFT JOIN (SELECT fecha_key, sucursal_key, producto_key, SUM(cantidad) AS unidades_vendidas
+           FROM gold.fact_ventas
+           GROUP BY fecha_key, sucursal_key, producto_key) v
+       ON v.fecha_key = i.fecha_key AND v.sucursal_key = i.sucursal_key AND v.producto_key = i.producto_key
+WHERE i.cantidad_stock < i.stock_minimo
+ORDER BY f.fecha, s.sucursal;
